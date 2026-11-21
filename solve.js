@@ -16,6 +16,7 @@ export function run(input) {
 
   let pos = 0;
   let line = 1;
+  const hasCR = text.includes('\r');
   if (text.charCodeAt(0) === 0xfeff) pos = 1;
 
   let recordLine = 1;
@@ -74,7 +75,7 @@ export function run(input) {
           errors.push({ code: 'unterminated_quote', line: recordLine, row: recordRow });
           value = '"';
           endedComma = false;
-          const r = readUnquoted(text, n, pos, line, value, errors, recordLine, recordRow);
+          const r = readUnquoted(text, n, pos, line, value, errors, recordLine, recordRow, hasCR);
           pos = r.pos; line = r.line; value = r.value; endedComma = r.endedComma;
           fields.push(value);
           continue;
@@ -85,13 +86,13 @@ export function run(input) {
         if (c === LF) { pos += 1; line += 1; endedComma = false; fields.push(value); break; }
         if (c === CR && text.charCodeAt(pos + 1) === LF) { pos += 2; line += 1; endedComma = false; fields.push(value); break; }
         // junk after the closing quote, appended as it stands, up to the next comma or break
-        const r = readUnquoted(text, n, pos, line, value, errors, recordLine, recordRow);
+        const r = readUnquoted(text, n, pos, line, value, errors, recordLine, recordRow, hasCR);
         pos = r.pos; line = r.line; value = r.value; endedComma = r.endedComma;
         if (r.added > 0) errors.push({ code: 'quote_junk', line: recordLine, row: recordRow });
         fields.push(value);
         continue;
       }
-      const r = readUnquoted(text, n, pos, line, '', errors, recordLine, recordRow);
+      const r = readUnquoted(text, n, pos, line, '', errors, recordLine, recordRow, hasCR);
       pos = r.pos; line = r.line; endedComma = r.endedComma;
       fields.push(r.value);
     }
@@ -114,17 +115,17 @@ export function run(input) {
 
 // Unquoted characters up to a comma or a line break; a CR not followed by LF is dropped with stray_cr.
 // Delimiters are found with indexOf, so the per-character work happens in V8 instead of here.
-function readUnquoted(text, n, pos, line, prefix, errors, recordLine, recordRow) {
+function readUnquoted(text, n, pos, line, prefix, errors, recordLine, recordRow, hasCR) {
   let start = pos;
   let value = prefix;
   let added = 0;
   while (pos < n) {
     const comma = text.indexOf(',', pos);
     const lf = text.indexOf('\n', pos);
-    const cr = text.indexOf('\r', pos);
     let next = n;
     if (comma >= 0 && comma < next) next = comma;
     if (lf >= 0 && lf < next) next = lf;
+    const cr = text.indexOf('\r', pos);
     if (cr >= 0 && cr < next) next = cr;
     if (next === n) { value += text.slice(start, n); added += n - start; pos = n; break; }
     const ch = text.charCodeAt(next);
