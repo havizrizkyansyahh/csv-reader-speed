@@ -48,6 +48,7 @@ export function run(input) {
     REC_LINE = recordLine;
     REC_ROW = recordRow;
     const fields = [];
+    let nf = 0;
     let endedComma = true;
     let anyQuoted = false;
 
@@ -65,36 +66,53 @@ export function run(input) {
           ADDED = 0;
           value = '"' + SCAN_U();
           endedComma = COMMA_END;
-          fields.push(value);
+          fields[nf++] = value;
           continue;
         }
-        if (P >= N) { endedComma = false; fields.push(value); break; }
+        if (P >= N) { endedComma = false; fields[nf++] = value; break; }
         const c = T.charCodeAt(P);
-        if (c === COMMA) { P += 1; fields.push(value); continue; }
-        if (c === LF) { P += 1; L += 1; endedComma = false; fields.push(value); break; }
-        if (c === CR && T.charCodeAt(P + 1) === LF) { P += 2; L += 1; endedComma = false; fields.push(value); break; }
+        if (c === COMMA) { P += 1; fields[nf++] = value; continue; }
+        if (c === LF) { P += 1; L += 1; endedComma = false; fields[nf++] = value; break; }
+        if (c === CR && T.charCodeAt(P + 1) === LF) { P += 2; L += 1; endedComma = false; fields[nf++] = value; break; }
         // junk after the closing quote, appended as it stands, up to the next comma or break
         ADDED = 0;
         value += SCAN_U();
         endedComma = COMMA_END;
         if (ADDED > 0) errors.push({ code: 'quote_junk', line: recordLine, row: recordRow });
-        fields.push(value);
+        fields[nf++] = value;
         continue;
       }
-      ADDED = 0;
-      const value = SCAN_U();
-      endedComma = COMMA_END;
-      fields.push(value);
+      // an unquoted field, inline: one function call fewer per field
+      let start = P;
+      let value = '';
+      let done = false;
+      while (P < N) {
+        const c = T.charCodeAt(P);
+        if (c === COMMA) { value += T.slice(start, P); P += 1; endedComma = true; done = true; break; }
+        if (c === LF) { value += T.slice(start, P); P += 1; L += 1; endedComma = false; done = true; break; }
+        if (c === CR) {
+          value += T.slice(start, P);
+          if (T.charCodeAt(P + 1) === LF) { P += 2; L += 1; endedComma = false; done = true; break; }
+          errors.push({ code: 'stray_cr', line: recordLine, row: recordRow });
+          P += 1;
+          start = P;
+          continue;
+        }
+        P += 1;
+      }
+      if (!done) { value += T.slice(start, N); endedComma = false; }
+      fields[nf++] = value;
     }
+    fields.length = nf;
 
-    if (fields.length === 1 && fields[0] === '' && !anyQuoted) continue;
+    if (nf === 1 && fields[0] === '' && !anyQuoted) continue;
 
-    if (width < 0) width = fields.length;
+    if (width < 0) width = nf;
     if (header && columns === null) { columns = fields; continue; }
-    if (fields.length < width) {
-      errors.push({ code: 'short_row', line: recordLine, row: recordRow, fields: fields.length });
+    if (nf < width) {
+      errors.push({ code: 'short_row', line: recordLine, row: recordRow, fields: nf });
       while (fields.length < width) fields.push('');
-    } else if (fields.length > width) {
+    } else if (nf > width) {
       errors.push({ code: 'long_row', line: recordLine, row: recordRow, extra: fields.splice(width) });
     }
     rows.push(fields);
